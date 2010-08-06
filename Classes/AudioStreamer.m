@@ -16,9 +16,9 @@
 #if TARGET_OS_IPHONE			
 #import <CFNetwork/CFNetwork.h>
 #import "UIDevice+Hardware.h"
-#define kCFCoreFoundationVersionNumber_MIN 550.32
-#else
-#define kCFCoreFoundationVersionNumber_MIN 550.00
+#ifndef kCFCoreFoundationVersionNumber_iPhoneOS_4_0
+#define kCFCoreFoundationVersionNumber_iPhoneOS_4_0 550.32
+#endif
 #endif
 
 #define BitRateEstimationMaxPackets 5000
@@ -2071,17 +2071,13 @@ cleanup:
 			for (int i = 0; i * sizeof(AudioFormatListItem) < formatListSize; i += sizeof(AudioFormatListItem))
 			{
 				AudioStreamBasicDescription pasbd = formatList[i].mASBD;
-
 				if(pasbd.mFormatID == kAudioFormatMPEG4AAC_HE_V2 && 
-#if TARGET_OS_IPHONE			
 				   [[UIDevice currentDevice] platformHasCapability:(UIDeviceSupportsARMV7)] && 
-#endif
-				   kCFCoreFoundationVersionNumber >= kCFCoreFoundationVersionNumber_MIN)
+				   kCFCoreFoundationVersionNumber >= kCFCoreFoundationVersionNumber_iPhoneOS_4_0)
 				{
 					// We found HE-AAC v2 (SBR+PS), but before trying to play it
 					// we need to make sure that both the hardware and software are
 					// capable of doing so...
-					NSLog(@"HE-AACv2 found!");
 #if !TARGET_IPHONE_SIMULATOR
 					asbd = pasbd;
 #endif
