@@ -195,9 +195,9 @@
 
 - (void)viewDidAppear:(BOOL)animated {
 	[super viewDidAppear:animated];
-	UIApplication *application = [UIApplication sharedApplication];
-	if([application respondsToSelector:@selector(beginReceivingRemoteControlEvents)])
-		[application beginReceivingRemoteControlEvents];
+	if(kCFCoreFoundationVersionNumber >= kCFCoreFoundationVersionNumber_iPhoneOS_4_0)
+		[[UIApplication sharedApplication] beginReceivingRemoteControlEvents];
+
 	[self becomeFirstResponder]; // this enables listening for events
 	// update the UI in case we were in the background
 	NSNotification *notification =
