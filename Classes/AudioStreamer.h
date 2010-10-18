@@ -12,8 +12,11 @@
 //  appreciated but not required.
 //
 
-#ifdef TARGET_OS_IPHONE			
+#if TARGET_OS_IPHONE			
 #import <UIKit/UIKit.h>
+#ifndef kCFCoreFoundationVersionNumber_iPhoneOS_4_0
+#define kCFCoreFoundationVersionNumber_iPhoneOS_4_0 550.32
+#endif
 #else
 #import <Cocoa/Cocoa.h>
 #endif TARGET_OS_IPHONE			
@@ -97,9 +100,11 @@ typedef enum
 } AudioStreamerErrorCode;
 
 extern NSString * const ASStatusChangedNotification;
+extern NSString * const ASPresentAlertWithTitleNotification;
 
 @interface AudioStreamer : NSObject
 {
+	UIBackgroundTaskIdentifier bgTaskId;
 	NSURL *url;
 
 	//
@@ -155,6 +160,17 @@ extern NSString * const ASStatusChangedNotification;
 								// time)
 	double packetDuration;		// sample rate times frames per packet
 	double lastProgress;		// last calculated progress point
+	UInt32 numberOfChannels;	// Number of audio channels in the stream (1 = mono, 2 = stereo)
+
+#ifdef SHOUTCAST_METADATA
+	BOOL foundIcyStart;
+	BOOL foundIcyEnd;
+	BOOL parsedHeaders;
+	unsigned int metaDataInterval;					// how many data bytes between meta data
+	unsigned int metaDataBytesRemaining;	// how many bytes of metadata remain to be read
+	unsigned int dataBytesRead;							// how many bytes of data have been read
+	NSMutableString *metaDataString;			// the metaDataString
+#endif
 }
 
 @property AudioStreamerErrorCode errorCode;
@@ -164,6 +180,9 @@ extern NSString * const ASStatusChangedNotification;
 @property (readonly) double duration;
 @property (readwrite) UInt32 bitRate;
 @property (readonly) NSDictionary *httpHeaders;
+@property (readonly) UInt32 numberOfChannels;
+@property (assign, getter=isMeteringEnabled) BOOL meteringEnabled;
+
 
 - (id)initWithURL:(NSURL *)aURL;
 - (void)start;
@@ -175,6 +194,11 @@ extern NSString * const ASStatusChangedNotification;
 - (BOOL)isIdle;
 - (void)seekToTime:(double)newSeekTime;
 - (double)calculatedBitRate;
+
+// level metering
+- (float)peakPowerForChannel:(NSUInteger)channelNumber;
+- (float)averagePowerForChannel:(NSUInteger)channelNumber;
+
 
 @end
 
