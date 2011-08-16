@@ -226,10 +226,11 @@ void ASReadStreamCallBack
 
 @synthesize errorCode;
 @synthesize state;
+@synthesize stopReason;
 @synthesize bitRate;
 @synthesize httpHeaders;
 @synthesize numberOfChannels;
-
+@synthesize vbr;
 
 //
 // initWithURL
@@ -687,8 +688,8 @@ void ASReadStreamCallBack
 		if (fileLength > 0 && seekByteOffset > 0)
 		{
 			CFHTTPMessageSetHeaderFieldValue(message, CFSTR("Range"),
-				(CFStringRef)[NSString stringWithFormat:@"bytes=%ld-%ld", seekByteOffset, fileLength]);
-			discontinuous = YES;
+				(CFStringRef)[NSString stringWithFormat:@"bytes=%ld-%ld", seekByteOffset, fileLength - 1]);
+			discontinuous = vbr;
 		}
 		
 		//
@@ -955,6 +956,7 @@ cleanup:
 					initWithTarget:self
 					selector:@selector(startInternal)
 					object:nil];
+			[internalThread setName:@"InternalThread"];
 			[internalThread start];
 		}
 	}
@@ -1112,17 +1114,24 @@ cleanup:
 //
 - (double)calculatedBitRate
 {
-	if (packetDuration && processedPacketsCount > BitRateEstimationMinPackets)
+	if (vbr)
 	{
-		double averagePacketByteSize = processedPacketsSizeTotal / processedPacketsCount;
-		return 8.0 * averagePacketByteSize / packetDuration;
-	}
+		if (packetDuration && processedPacketsCount > BitRateEstimationMinPackets)
+		{
+			double averagePacketByteSize = processedPacketsSizeTotal / processedPacketsCount;
+			return 8.0 * averagePacketByteSize / packetDuration;
+		}
 	
-	if (bitRate)
+		if (bitRate)
+		{
+			return (double)bitRate;
+		}
+	}
+	else
 	{
-		return (double)bitRate;
+		bitRate = 8.0 * asbd.mSampleRate * asbd.mBytesPerPacket * asbd.mFramesPerPacket;
+		return bitRate;
 	}
-	
 	return 0;
 }
 
@@ -1229,8 +1238,12 @@ cleanup:
 		else if (state == AS_PAUSED)
 		{
 			err = AudioQueueStart(audioQueue, NULL);
-#if TARGET_OS_IPHONE            
-			bgTaskId = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:NULL];
+#if TARGET_OS_IPHONE
+			if ([[UIDevice currentDevice] respondsToSelector:@selector(isMultitaskingSupported)]) {
+				if (bgTaskId != UIBackgroundTaskInvalid) {
+					bgTaskId = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:NULL];
+				}
+			}
 #endif            
 			if (err)
 			{
@@ -1826,7 +1839,9 @@ cleanup:
 				{
 					err = AudioQueueStart(audioQueue, NULL);
 #if TARGET_OS_IPHONE                    
-					bgTaskId = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:NULL];
+					if ([[UIDevice currentDevice] respondsToSelector:@selector(isMultitaskingSupported)]) {
+						bgTaskId = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:NULL];
+					}
 #endif					
 					if (err)
 					{
@@ -1840,8 +1855,10 @@ cleanup:
 					self.state = AS_WAITING_FOR_QUEUE_TO_START;
 
 					err = AudioQueueStart(audioQueue, NULL);
-#if TARGET_OS_IPHONE                    
-					bgTaskId = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:NULL];
+#if TARGET_OS_IPHONE 
+					if ([[UIDevice currentDevice] respondsToSelector:@selector(isMultitaskingSupported)]) {
+						bgTaskId = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:NULL];
+					}
 #endif					
 					if (err)
 					{
@@ -1902,17 +1919,25 @@ cleanup:
 	}
 	
 	// get the packet size if it is available
-	UInt32 sizeOfUInt32 = sizeof(UInt32);
-	err = AudioFileStreamGetProperty(audioFileStream, kAudioFileStreamProperty_PacketSizeUpperBound, &sizeOfUInt32, &packetBufferSize);
-	if (err || packetBufferSize == 0)
+	if (vbr)
 	{
-		err = AudioFileStreamGetProperty(audioFileStream, kAudioFileStreamProperty_MaximumPacketSize, &sizeOfUInt32, &packetBufferSize);
+		UInt32 sizeOfUInt32 = sizeof(UInt32);
+		err = AudioFileStreamGetProperty(audioFileStream, kAudioFileStreamProperty_PacketSizeUpperBound, &sizeOfUInt32, &packetBufferSize);
 		if (err || packetBufferSize == 0)
 		{
-			// No packet size available, just use the default
-			packetBufferSize = kAQDefaultBufSize;
+			err = AudioFileStreamGetProperty(audioFileStream, kAudioFileStreamProperty_MaximumPacketSize, &sizeOfUInt32, &packetBufferSize);
+			if (err || packetBufferSize == 0)
+			{
+				// No packet size available, just use the default
+				packetBufferSize = kAQDefaultBufSize;
+			}
 		}
 	}
+	else
+	{
+		packetBufferSize = kAQDefaultBufSize;
+	}
+
 
 	// allocate audio queue buffers
 	for (unsigned int i = 0; i < kNumAQBufs; ++i)
@@ -2125,6 +2150,7 @@ cleanup:
 		
 		if (!audioQueue)
 		{
+			vbr = (inPacketDescriptions != nil);
 			[self createQueue];
 		}
 	}
@@ -2321,9 +2347,6 @@ cleanup:
 	propertyID:(AudioQueuePropertyID)inID
 {
 	NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-#if TARGET_OS_IPHONE    
-	UIBackgroundTaskIdentifier newTaskId = UIBackgroundTaskInvalid;
-#endif	
 	@synchronized(self)
 	{
 		if (inID == kAudioQueueProperty_IsRunning)
@@ -2348,21 +2371,20 @@ cleanup:
 				// By creating an NSRunLoop for the AudioQueue thread, it changes the
 				// thread destruction order and seems to avoid this crash bug -- or
 				// at least I haven't had it since (nasty hard to reproduce error!)
-				//
-#if TARGET_OS_IPHONE                
-				newTaskId = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:NULL];
-#endif                
+				//              
 				
 				[NSRunLoop currentRunLoop];
 
 				self.state = AS_PLAYING;
 
 #if TARGET_OS_IPHONE				
-				if (bgTaskId != UIBackgroundTaskInvalid) {
-					[[UIApplication sharedApplication] endBackgroundTask: bgTaskId];
+				if ([[UIDevice currentDevice] respondsToSelector:@selector(isMultitaskingSupported)]) {
+					if (bgTaskId != UIBackgroundTaskInvalid) {
+						[[UIApplication sharedApplication] endBackgroundTask: bgTaskId];
+					}
+					
+					bgTaskId = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:NULL];
 				}
-				
-				bgTaskId = newTaskId;
 #endif                
 			}
 			else

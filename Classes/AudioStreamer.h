@@ -22,6 +22,7 @@
 #import <Cocoa/Cocoa.h>
 #endif TARGET_OS_IPHONE			
 
+#import <Foundation/Foundation.h>
 #include <pthread.h>
 #include <AudioToolbox/AudioToolbox.h>
 
@@ -177,10 +178,12 @@ extern NSString * const ASUpdateMetadataNotification;
 	unsigned int dataBytesRead;							// how many bytes of data have been read
 	NSMutableString *metaDataString;			// the metaDataString
 #endif
+	BOOL vbr; // indicates VBR (or not) stream
 }
 
 @property AudioStreamerErrorCode errorCode;
 @property (readonly) AudioStreamerState state;
+@property (readonly) AudioStreamerStopReason stopReason;
 @property (readonly) double progress;
 @property (readonly) double bufferFillPercentage;
 @property (readonly) double duration;
@@ -188,7 +191,7 @@ extern NSString * const ASUpdateMetadataNotification;
 @property (readonly) NSDictionary *httpHeaders;
 @property (readonly) UInt32 numberOfChannels;
 @property (assign, getter=isMeteringEnabled) BOOL meteringEnabled;
-
+@property (readonly) BOOL vbr;
 
 - (id)initWithURL:(NSURL *)aURL;
 - (void)start;
