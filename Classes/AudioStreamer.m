@@ -266,13 +266,17 @@ void ASReadStreamCallBack
 }
 
 //
-// bufferFillPercentage
+// bufferFillLevel
 //
 // returns a value between 0 and 1 that represents how full the buffer is
 //
--(double)bufferFillPercentage
+-(double)bufferFillLevel
 {
-	return (double)buffersUsed/(double)(kNumAQBufs - 1);
+	double percent = (double)buffersUsed/(double)(kNumAQBufs - 1);
+    if(percent>1.0)
+        return 1.0;
+    
+    return percent;
 }
 
 
